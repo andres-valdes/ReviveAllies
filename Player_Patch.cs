@@ -6,6 +6,18 @@ namespace Ratzu.Valheim.ReviveAllies
 {
     public static class Player_Patch
     {
+		const string ZDO_ACCESSOR_ACTIVE_REVIVE_POINT = "active_revive_point";
+
+		public static void SetActiveRevivePoint(this Player player, RevivePoint revivePoint)
+        {
+			player.m_nview?.GetZDO()?.Set(ZDO_ACCESSOR_ACTIVE_REVIVE_POINT, revivePoint.GetZDOID());
+		}
+
+		public static ZDOID GetActiveRevivePointZDOID(this Player player)
+		{
+			return player?.m_nview?.GetZDO()?.GetZDOID(ZDO_ACCESSOR_ACTIVE_REVIVE_POINT) ?? ZDOID.None;
+		}
+
 		[HarmonyPatch(typeof(Player), nameof(Player.Awake))]
 		public class PatchPlayerAwakeRegisterCollisionRPCsAndCheckCollisions
         {

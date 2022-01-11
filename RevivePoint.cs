@@ -7,7 +7,6 @@ public class RevivePoint : MonoBehaviour, Interactable, Hoverable
     const string ZDO_ACCESSOR_LOCATION = "revive_point_location";
     const string ZDO_ACCESSOR_REVIVEE_ID = "revive_point_revivee_id";
     const string ZDO_ACCESSOR_REVIVEE_NAME = "revive_point_revivee_name";
-    const string ZDO_ACCESSOR_PLAYER_ACTIVE_REVIVE_POINT = "active_revive_point";
 
     protected ZNetView m_nview;
 
@@ -67,7 +66,16 @@ public class RevivePoint : MonoBehaviour, Interactable, Hoverable
         }
         m_nview?.GetZDO()?.Set(ZDO_ACCESSOR_REVIVEE_ID, revivee.GetPlayerID());
         m_nview?.GetZDO()?.Set(ZDO_ACCESSOR_REVIVEE_NAME, revivee.GetPlayerName());
-        revivee?.m_nview?.GetZDO()?.Set(ZDO_ACCESSOR_PLAYER_ACTIVE_REVIVE_POINT, m_nview?.GetZDO()?.m_uid ?? ZDOID.None);
+        revivee?.SetActiveRevivePoint(this);
+    }
+
+    public ZDOID GetZDOID()
+    {
+        if (m_nview?.IsValid() != true)
+        {
+            return ZDOID.None;
+        }
+        return m_nview?.GetZDO()?.m_uid ?? ZDOID.None;
     }
 
     long? GetCreationTime()
@@ -111,7 +119,13 @@ public class RevivePoint : MonoBehaviour, Interactable, Hoverable
 
     bool IsReviveeActiveRevivePoint()
     {
-        return GetRevivee()?.m_nview?.GetZDO()?.GetZDOID(ZDO_ACCESSOR_PLAYER_ACTIVE_REVIVE_POINT) == m_nview?.GetZDO().m_uid;
+        ZDOID reviveeActiveRevivePointZDOID = GetRevivee()?.GetActiveRevivePointZDOID() ?? ZDOID.None;
+        ZDOID selfZDOID = m_nview?.GetZDO().m_uid ?? ZDOID.None;
+        if (selfZDOID == ZDOID.None || reviveeActiveRevivePointZDOID == ZDOID.None)
+        {
+            return false;
+        }
+        return reviveeActiveRevivePointZDOID == selfZDOID;
     }
 
     bool IsWithinReviveWindow()
