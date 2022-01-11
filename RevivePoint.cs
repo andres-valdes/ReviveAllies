@@ -1,5 +1,6 @@
 ﻿using UnityEngine;
 using Ratzu.Valheim.ReviveAllies;
+
 public class RevivePoint : MonoBehaviour, Interactable, Hoverable
 {
     const string ZDO_ACCESSOR_CREATION_TIME = "revive_point_creation_time";
@@ -35,7 +36,7 @@ public class RevivePoint : MonoBehaviour, Interactable, Hoverable
         {
             return false;
         }
-        ReviveOwner();
+        ReviveRevivee();
         return true;
     }
 
@@ -88,14 +89,14 @@ public class RevivePoint : MonoBehaviour, Interactable, Hoverable
         m_nview?.GetZDO()?.Set(ZDO_ACCESSOR_LOCATION, location);
     }
 
-    void ReviveOwner()
+    void ReviveRevivee()
     {
         if (m_nview?.IsValid() != true)
         {
             return;
         }
-        Player owner = GetRevivee();
-        owner?.m_nview?.InvokeRPC("Revive", Player.m_localPlayer);
+        Player revivee = GetRevivee();
+        revivee?.m_nview?.InvokeRPC("Revive", Player.m_localPlayer);
     }
 
     Player GetRevivee()
