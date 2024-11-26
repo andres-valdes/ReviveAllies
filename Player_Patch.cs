@@ -1,6 +1,7 @@
 ﻿using HarmonyLib;
 using UnityEngine;
 using System;
+using System.Collections.Generic;
 
 namespace Ratzu.Valheim.ReviveAllies
 {
@@ -91,11 +92,12 @@ namespace Ratzu.Valheim.ReviveAllies
         }
 
         [HarmonyPatch(typeof(Player), nameof(Player.OnSpawned))]
-        public class PatchOnSpawnedSendRPC_OnSpawn
+        public class PatchOnSpawnedSendRPCAndClearTombstoneOnSpawned
         {
             public static void Postfix(Player __instance)
             {
                 __instance?.m_nview?.InvokeRPC("OnSpawn");
+                TombStoneManager.ClearActiveTombStone();
             }
         }
 
@@ -118,25 +120,97 @@ namespace Ratzu.Valheim.ReviveAllies
         {
             public static bool Prefix(Player __instance)
             {
-                bool num = __instance.HardDeath();
-                __instance.m_nview.GetZDO().Set("dead", value: true);
+                if (!__instance.m_nview.IsOwner())
+                {
+                    Debug.Log("OnDeath call but not the owner");
+                    return false;
+                }
+                bool flag = __instance.HardDeath();
+                __instance.m_nview.GetZDO().Set(ZDOVars.s_dead, value: true);
                 __instance.m_nview.InvokeRPC(ZNetView.Everybody, "OnDeath");
-                Game.instance.GetPlayerProfile().m_playerStats.m_deaths++;
+                Game.instance.IncrementPlayerStat(PlayerStatType.Deaths);
+                switch (__instance.m_lastHit.m_hitType)
+                {
+                    case HitData.HitType.Undefined:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByUndefined);
+                        break;
+                    case HitData.HitType.EnemyHit:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByEnemyHit);
+                        break;
+                    case HitData.HitType.PlayerHit:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByPlayerHit);
+                        break;
+                    case HitData.HitType.Fall:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByFall);
+                        break;
+                    case HitData.HitType.Drowning:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByDrowning);
+                        break;
+                    case HitData.HitType.Burning:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByBurning);
+                        break;
+                    case HitData.HitType.Freezing:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByFreezing);
+                        break;
+                    case HitData.HitType.Poisoned:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByPoisoned);
+                        break;
+                    case HitData.HitType.Water:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByWater);
+                        break;
+                    case HitData.HitType.Smoke:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathBySmoke);
+                        break;
+                    case HitData.HitType.EdgeOfWorld:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByEdgeOfWorld);
+                        break;
+                    case HitData.HitType.Impact:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByImpact);
+                        break;
+                    case HitData.HitType.Cart:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByCart);
+                        break;
+                    case HitData.HitType.Tree:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByTree);
+                        break;
+                    case HitData.HitType.Self:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathBySelf);
+                        break;
+                    case HitData.HitType.Structural:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByStructural);
+                        break;
+                    case HitData.HitType.Turret:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByTurret);
+                        break;
+                    case HitData.HitType.Boat:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByBoat);
+                        break;
+                    case HitData.HitType.Stalagtite:
+                        Game.instance.IncrementPlayerStat(PlayerStatType.DeathByStalagtite);
+                        break;
+                    default:
+                        ZLog.LogWarning("Not implemented death type " + __instance.m_lastHit.m_hitType);
+                        break;
+                }
                 Game.instance.GetPlayerProfile().SetDeathPoint(__instance.transform.position);
                 __instance.CreateDeathEffects();
                 __instance.CreateTombStone();
-                __instance.GetFoods().Clear();
-                if (num)
+                __instance.m_foods.Clear();
+                if (ZoneSystem.instance.GetGlobalKey(GlobalKeys.DeathSkillsReset))
+                {
+                    __instance.m_skills.Clear();
+                }
+                else if (flag)
                 {
                     __instance.m_skills.OnDeath();
                 }
                 __instance.m_seman.RemoveAllStatusEffects();
-                if (!num)
+                __instance.m_timeSinceDeath = 0f;
+                if (!flag)
                 {
                     __instance.Message(MessageHud.MessageType.TopLeft, "$msg_softdeath");
                 }
                 __instance.Message(MessageHud.MessageType.Center, "$msg_youdied");
-                __instance.Message(MessageHud.MessageType.TopLeft, "You can wait to be revived at your grave or press [$KEY_Use] to give up.");
                 __instance.ShowTutorial("death");
                 Minimap.instance.AddPin(__instance.transform.position, Minimap.PinType.Death, $"$hud_mapday {EnvMan.instance.GetDay(ZNet.instance.GetTimeSeconds())}", save: true, isChecked: false, 0L);
                 if (__instance.m_onDeath != null)
@@ -145,12 +219,6 @@ namespace Ratzu.Valheim.ReviveAllies
                 }
                 string eventLabel = "biome:" + __instance.GetCurrentBiome();
                 Gogan.LogEvent("Game", "Death", eventLabel, 0L);
-                CapsuleCollider deadPlayerCollider = __instance.m_collider;
-                foreach (Player player in ZNetScene.FindObjectsOfType<Player>())
-                {
-                    CapsuleCollider playerCollider = player.m_collider;
-                    Physics.IgnoreCollision(deadPlayerCollider, playerCollider, true);
-                }
                 return false;
             }
         }
@@ -158,141 +226,25 @@ namespace Ratzu.Valheim.ReviveAllies
         [HarmonyPatch(typeof(Player), nameof(Player.Update))]
         public class PatchUpdateForceKillOnUseIfHasActiveTombStone
         {
-            public static bool Prefix(Player __instance)
+            public static void Prefix(Player __instance)
             {
                 if (!__instance.m_nview.IsValid() || !__instance.m_nview.IsOwner())
                 {
-                    return false;
+                    return;
                 }
                 bool flag = __instance.TakeInput();
                 __instance.UpdateHover();
                 if (flag)
                 {
-                    if (Player.m_debugMode && Console.instance.IsCheatsEnabled())
-                    {
-                        if (Input.GetKeyDown(KeyCode.Z))
-                        {
-                            __instance.ToggleDebugFly();
-                        }
-                        if (Input.GetKeyDown(KeyCode.B))
-                        {
-                            __instance.ToggleNoPlacementCost();
-                        }
-                        if (Input.GetKeyDown(KeyCode.K))
-                        {
-                            Console.instance.TryRunCommand("killall");
-                        }
-                        if (Input.GetKeyDown(KeyCode.L))
-                        {
-                            Console.instance.TryRunCommand("removedrops");
-                        }
-                    }
                     if (ZInput.GetButtonDown("Use") || ZInput.GetButtonDown("JoyUse"))
                     {
-                        bool alt = ZInput.GetButton("AltPlace") || ZInput.GetButton("JoyAltPlace");
-                        if ((bool)__instance.m_hovering)
-                        {
-                            __instance.Interact(__instance.m_hovering, hold: false, alt);
-                        }
-                        else if (TombStoneManager.GetActiveTombStone() != null)
+                        if (TombStoneManager.GetActiveTombStone() != null)
                         {
                             ReviveAllies.logger.LogInfo("___ KILLING SELF ___");
                             ClientRespawnManager.RequestForceRespawn();
                         }
-                        else if (__instance.m_doodadController != null)
-                        {
-                            __instance.StopDoodadControl();
-                        }
-                    }
-                    else if (ZInput.GetButton("Use") || ZInput.GetButton("JoyUse"))
-                    {
-                        bool alt2 = ZInput.GetButton("AltPlace") || ZInput.GetButton("JoyAltPlace");
-                        if ((bool)__instance.m_hovering)
-                        {
-                            __instance.Interact(__instance.m_hovering, hold: true, alt2);
-                        }
-                    }
-                    if (ZInput.GetButtonDown("Hide") || ZInput.GetButtonDown("JoyHide"))
-                    {
-                        if (__instance.GetRightItem() != null || __instance.GetLeftItem() != null)
-                        {
-                            if (!__instance.InAttack())
-                            {
-                                __instance.HideHandItems();
-                            }
-                        }
-                        else if (!__instance.IsSwiming() || __instance.IsOnGround())
-                        {
-                            __instance.ShowHandItems();
-                        }
-                    }
-                    if (ZInput.GetButtonDown("ToggleWalk"))
-                    {
-                        __instance.SetWalk(!__instance.GetWalk());
-                        if (__instance.GetWalk())
-                        {
-                            __instance.Message(MessageHud.MessageType.TopLeft, "$msg_walk $hud_on");
-                        }
-                        else
-                        {
-                            __instance.Message(MessageHud.MessageType.TopLeft, "$msg_walk $hud_off");
-                        }
-                    }
-                    if (ZInput.GetButtonDown("Sit") || (!__instance.InPlaceMode() && ZInput.GetButtonDown("JoySit")))
-                    {
-                        if (__instance.InEmote() && __instance.IsSitting())
-                        {
-                            __instance.StopEmote();
-                        }
-                        else
-                        {
-                            __instance.StartEmote("sit", oneshot: false);
-                        }
-                    }
-                    if (ZInput.GetButtonDown("GP") || (ZInput.GetButtonDown("JoyGP") && !ZInput.GetButton("JoyAltKeys")))
-                    {
-                        __instance.StartGuardianPower();
-                    }
-                    if (ZInput.GetButtonDown("AutoPickup"))
-                    {
-                        __instance.m_enableAutoPickup = !__instance.m_enableAutoPickup;
-                        __instance.Message(MessageHud.MessageType.TopLeft, "$hud_autopickup:" + (__instance.m_enableAutoPickup ? "$hud_on" : "$hud_off"));
-                    }
-                    if (Input.GetKeyDown(KeyCode.Alpha1))
-                    {
-                        __instance.UseHotbarItem(1);
-                    }
-                    if (Input.GetKeyDown(KeyCode.Alpha2))
-                    {
-                        __instance.UseHotbarItem(2);
-                    }
-                    if (Input.GetKeyDown(KeyCode.Alpha3))
-                    {
-                        __instance.UseHotbarItem(3);
-                    }
-                    if (Input.GetKeyDown(KeyCode.Alpha4))
-                    {
-                        __instance.UseHotbarItem(4);
-                    }
-                    if (Input.GetKeyDown(KeyCode.Alpha5))
-                    {
-                        __instance.UseHotbarItem(5);
-                    }
-                    if (Input.GetKeyDown(KeyCode.Alpha6))
-                    {
-                        __instance.UseHotbarItem(6);
-                    }
-                    if (Input.GetKeyDown(KeyCode.Alpha7))
-                    {
-                        __instance.UseHotbarItem(7);
-                    }
-                    if (Input.GetKeyDown(KeyCode.Alpha8))
-                    {
-                        __instance.UseHotbarItem(8);
                     }
                 }
-                __instance.UpdatePlacement(flag, Time.deltaTime);
-                return false;
             }
         }
 
@@ -301,14 +253,12 @@ namespace Ratzu.Valheim.ReviveAllies
         {
             public static bool Prefix(Player __instance, ref bool __result)
             {
-                bool result = (!Chat.instance || !Chat.instance.HasFocus()) && !Console.IsVisible() && !TextInput.IsVisible() && !StoreGui.IsVisible() && !InventoryGui.IsVisible() && !Menu.IsVisible() && (!TextViewer.instance || !TextViewer.instance.IsVisible()) && !Minimap.IsOpen() && !GameCamera.InFreeFly();
-                if ((__instance.IsDead() && TombStoneManager.GetActiveTombStone() == null) || __instance.InCutscene() || __instance.IsTeleporting())
+                if (__instance.IsDead() && TombStoneManager.GetActiveTombStone() != null)
                 {
-                    result = false;
+                    __result = true;
+                    return false;
                 }
-
-                __result = result;
-                return false;
+                return true;
             }
         }
 

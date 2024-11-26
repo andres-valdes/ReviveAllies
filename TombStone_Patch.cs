@@ -48,12 +48,7 @@ namespace Ratzu.Valheim.ReviveAllies
                 return;
             }
             ReviveAllies.logger.LogInfo("___ REVIVING SELF: TOMBSTONE VALID ___");
-            if (Player.m_localPlayer != null)
-            {
-                Player.m_localPlayer.Message(MessageHud.MessageType.TopLeft, "You are being revived.");
-                tombStone.m_container.TakeAll(Player.m_localPlayer);
-            }
-            ClientRespawnManager.RequestRespawnAt(tombStone.transform.position);
+            ClientRespawnManager.RequestRespawnAtTombstone(tombStone);
         }
 
         [HarmonyPatch(typeof(TombStone), nameof(TombStone.Interact))]
@@ -109,10 +104,9 @@ namespace Ratzu.Valheim.ReviveAllies
         [HarmonyPatch(typeof(TombStone), nameof(TombStone.Setup))]
         public class PatchSetupSetupActiveTombStone
         {
-            public static bool Prefix(TombStone __instance)
+            public static void Prefix(TombStone __instance)
             {
                 TombStoneManager.SetActiveTombStone(__instance);
-                return true;
             }
         }
 
@@ -129,8 +123,7 @@ namespace Ratzu.Valheim.ReviveAllies
                 }
                 if (!__instance.m_nview.IsValid())
                 {
-                    __result = "";
-                    return false;
+                    return true;
                 }
                 string @string = __instance.m_nview.GetZDO().GetString("ownerName");
                 string text = __instance.m_text + " " + @string;

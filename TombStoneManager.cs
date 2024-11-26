@@ -2,6 +2,7 @@
 {
     public static class TombStoneManager
     {
+        public static bool isRespawningFromTombstone = false;
         private static TombStone activeTombStone;
         public static TombStone CreateTombStone(Player player)
         {
@@ -11,7 +12,6 @@
             TombStone component = obj.GetComponent<TombStone>();
             PlayerProfile playerProfile = Game.instance.GetPlayerProfile();
             component.Setup(playerProfile.GetName(), playerProfile.GetPlayerID());
-            SetActiveTombStone(component);
             return component;
         }
 
@@ -33,6 +33,10 @@
             if (activeTombStone == null)
             {
                 return;
+            }
+            if (isRespawningFromTombstone) {
+                activeTombStone.m_container.TakeAll(Player.m_localPlayer);
+                isRespawningFromTombstone = false;
             }
             TombStone tombStoneToUnset = activeTombStone;
             activeTombStone = null;
