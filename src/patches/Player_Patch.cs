@@ -1,29 +1,54 @@
 ﻿using HarmonyLib;
 using UnityEngine;
 using System;
-using System.Collections.Generic;
 
 namespace Ratzu.Valheim.ReviveAllies
 {
     public static class Player_Patch
     {
+
+        public static void RPC_Revive(this Player player, long sender)
+        {
+            RevivePoint revivePoint = player.GetRevivePoint();
+            if (revivePoint == null) {
+                return;
+            }
+            ClientRespawnManager.RespawnAt(revivePoint);
+        }
+
+        public static RevivePoint GetRevivePoint(this Player player)
+        {
+            return RevivePoint.GetRevivePoint(player);
+        }
+
         [HarmonyPatch(typeof(Player), nameof(Player.Awake))]
-        public class PatchPlayerAwakeRegisterCollisionRPCsAndCheckCollisions
+        public class Player_Awake_RegisterRPCs
         {
             public static void Postfix(Player __instance)
             {
-                CapsuleCollider localCollider = Player.m_localPlayer?.m_collider;
-                CapsuleCollider instanceCollider = __instance.m_collider;
-                if (localCollider != null && instanceCollider != null)
+                __instance.m_nview.Register("Revive", __instance.RPC_Revive);
+            }
+        }
+
+        [HarmonyPatch(typeof(Player), nameof(Player.Interact))]
+        public class Player_Interact_SelectPreferredComponentOnInteract
+        {
+            public static bool Prefix(Player __instance, ref GameObject go, ref bool hold, ref bool alt)
+            {
+                if (__instance.InAttack() || __instance.InDodge() || (hold && Time.time - __instance.m_lastHoverInteractTime < 0.2f))
                 {
-                    Physics.IgnoreCollision(
-                        localCollider,
-                        instanceCollider,
-                        (Player.m_localPlayer?.m_nview?.GetZDO()?.GetBool("dead") ?? false)
-                            || (__instance.m_nview?.GetZDO()?.GetBool("dead") ?? false)
-                    );
+                    return false;
                 }
-                __instance.m_nview?.Register("OnSpawn", (long sender) => __instance.RPC_OnSpawn(sender));
+                Interactable componentInParent = go.GetPreferredComponentInParent<Interactable>();
+                if (componentInParent != null)
+                {
+                    __instance.m_lastHoverInteractTime = Time.time;
+                    if (componentInParent.Interact(__instance, hold, alt))
+                    {
+                        __instance.DoInteractAnimation((componentInParent as MonoBehaviour).gameObject);
+                    }
+                }
+                return false;
             }
         }
 
@@ -58,7 +83,7 @@ namespace Ratzu.Valheim.ReviveAllies
                     }
                     if (Vector3.Distance(__instance.m_eye.position, raycastHit.point) < __instance.m_maxInteractDistance)
                     {
-                        if (raycastHit.collider.GetComponent<Hoverable>() != null)
+                        if (raycastHit.collider.GetPreferredComponent<Hoverable>() != null)
                         {
                             hover = raycastHit.collider.gameObject;
                         }
@@ -77,41 +102,37 @@ namespace Ratzu.Valheim.ReviveAllies
             }
         }
 
-        [HarmonyPatch(typeof(Player), nameof(Player.RPC_OnDeath))]
-        public class PatchRPC_OnDeathDisableCollisionsOnDeath
+        [HarmonyPatch(typeof(Player), nameof(Player.Update))]
+        public class Player_Update_DisableCollisionsWithDeadPlayers
         {
             public static void Postfix(Player __instance)
             {
-                CapsuleCollider localPlayerCollider = Player.m_localPlayer?.m_collider;
-                CapsuleCollider deadPlayerCollider = __instance.m_collider;
-                if (localPlayerCollider != null && deadPlayerCollider != null)
+                CapsuleCollider currentPlayerCollider = __instance.m_collider;
+                bool currentPlayerIsDead = __instance.IsDead();
+                foreach (Player player in Player.GetAllPlayers())
                 {
-                    Physics.IgnoreCollision(localPlayerCollider, deadPlayerCollider, true);
+                    bool playerIsDead = player.IsDead();
+                    CapsuleCollider playerCollider = player.m_collider;
+                    if (currentPlayerCollider != null && playerCollider != null)
+                    {
+                        Physics.IgnoreCollision(currentPlayerCollider, playerCollider, playerIsDead || currentPlayerIsDead);
+                    }
                 }
             }
         }
 
         [HarmonyPatch(typeof(Player), nameof(Player.OnSpawned))]
-        public class PatchOnSpawnedSendRPCAndClearTombstoneOnSpawned
+        public class Player_OnSpawned_ClearRevivePoint
         {
             public static void Postfix(Player __instance)
             {
-                __instance?.m_nview?.InvokeRPC("OnSpawn");
-                TombStoneManager.ClearActiveTombStone();
-            }
-        }
-
-        public static void RPC_OnSpawn(this Player spawnedPlayer, long sender)
-        {
-            CapsuleCollider localPlayerCollider = Player.m_localPlayer?.m_collider;
-            CapsuleCollider spawnedPlayerCollider = spawnedPlayer.m_collider;
-            if (localPlayerCollider != null && spawnedPlayerCollider != null)
-            {
-                Physics.IgnoreCollision(
-                    localPlayerCollider,
-                    spawnedPlayerCollider,
-                    false
-                );
+                ReviveAllies.logger.LogInfo("Spawned, clearing revive point.");
+                RevivePoint revivePoint = __instance.GetRevivePoint();
+                if (revivePoint == null) {
+                    return;
+                }
+                ClientRespawnManager.isUsingRevivePoint = false;
+                revivePoint.ClearRevivee();
             }
         }
 
@@ -226,22 +247,21 @@ namespace Ratzu.Valheim.ReviveAllies
         [HarmonyPatch(typeof(Player), nameof(Player.Update))]
         public class PatchUpdateForceKillOnUseIfHasActiveTombStone
         {
-            public static void Prefix(Player __instance)
+            public static void Postfix(Player __instance)
             {
                 if (!__instance.m_nview.IsValid() || !__instance.m_nview.IsOwner())
                 {
                     return;
                 }
-                bool flag = __instance.TakeInput();
-                __instance.UpdateHover();
-                if (flag)
+                if (__instance.TakeInput())
                 {
                     if (ZInput.GetButtonDown("Use") || ZInput.GetButtonDown("JoyUse"))
                     {
-                        if (TombStoneManager.GetActiveTombStone() != null)
+                        if (__instance.GetRevivePoint()?.IsValid() == true)
                         {
-                            ReviveAllies.logger.LogInfo("___ KILLING SELF ___");
-                            ClientRespawnManager.RequestForceRespawn();
+                            ClientRespawnManager.ForceRespawn();
+                        } else {
+                            ReviveAllies.logger.LogInfo("Force respawn: Active revive point not found.");
                         }
                     }
                 }
@@ -251,29 +271,12 @@ namespace Ratzu.Valheim.ReviveAllies
         [HarmonyPatch(typeof(Player), nameof(Player.TakeInput))]
         public class TakeInputPatchAllowWhileDeadIfPlayerHasActiveTombStone
         {
-            public static bool Prefix(Player __instance, ref bool __result)
+            public static void Postfix(Player __instance, ref bool __result)
             {
-                if (__instance.IsDead() && TombStoneManager.GetActiveTombStone() != null)
+                if (__instance.GetRevivePoint()?.IsValid() == true)
                 {
                     __result = true;
-                    return false;
                 }
-                return true;
-            }
-        }
-
-        [HarmonyPatch(typeof(Player), nameof(Player.CreateTombStone))]
-        public class PatchCreateTombStoneAlwaysCreate
-        {
-            public static bool Prefix(Player __instance)
-            {
-                __instance.UnequipAllItems();
-                GameObject obj = UnityEngine.Object.Instantiate(__instance.m_tombstone, __instance.GetCenterPoint(), __instance.transform.rotation);
-                obj.GetComponent<Container>().GetInventory().MoveInventoryToGrave(__instance.m_inventory);
-                TombStone component = obj.GetComponent<TombStone>();
-                PlayerProfile playerProfile = Game.instance.GetPlayerProfile();
-                component.Setup(playerProfile.GetName(), playerProfile.GetPlayerID());
-                return false;
             }
         }
     }
