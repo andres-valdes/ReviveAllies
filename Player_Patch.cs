@@ -97,6 +97,7 @@ namespace Ratzu.Valheim.ReviveAllies
             public static void Postfix(Player __instance)
             {
                 __instance?.m_nview?.InvokeRPC("OnSpawn");
+                ClientRespawnManager.isForceRespawning = false;
                 TombStoneManager.ClearActiveTombStone();
             }
         }
