@@ -68,6 +68,7 @@ namespace Ratzu.Valheim.ReviveAllies
                     return true;
                 }
                 __instance.m_nview.InvokeRPC("ReviveOwner");
+                Player.m_localPlayer?.Message(MessageHud.MessageType.TopLeft, string.Format("You are reviving {0}", __instance.m_nview.GetZDO().GetString("ownerName")), 0, null); 
                 ReviveAllies.logger.LogInfo("___ REVIVING PLAYER: REVIVE SENT ___");
                 __result = true;
                 return false;
